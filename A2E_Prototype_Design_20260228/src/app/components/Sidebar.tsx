@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { signOut } from "next-auth/react";
 import {
   LayoutDashboard,
   FileText,
@@ -10,6 +11,7 @@ import {
   HelpCircle,
   ChevronRight,
   Building2,
+  LogOut,
 } from "lucide-react";
 
 interface SidebarProps {
@@ -164,16 +166,40 @@ export function Sidebar({ activeView, onViewChange }: SidebarProps) {
       </div>
 
       {/* Footer */}
-      <div
-        className="px-3 py-2"
-        style={{
-          borderTop: "1px solid rgba(255,255,255,0.08)",
-          fontSize: 10,
-          color: "rgba(255,255,255,0.3)",
-          textAlign: "center",
-        }}
-      >
-        {!collapsed && "A2E Prototype v0.1"}
+      <div className="flex flex-col">
+        <div
+          className="flex items-center gap-2 px-3 py-3 cursor-pointer transition-colors"
+          style={{
+            borderTop: "1px solid rgba(255,255,255,0.08)",
+            color: "rgba(255,255,255,0.7)",
+            fontSize: 12,
+            justifyContent: collapsed ? "center" : "flex-start",
+          }}
+          onClick={() => signOut({ callbackUrl: '/login' })}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.backgroundColor = "rgba(255,255,255,0.06)";
+            e.currentTarget.style.color = "#fff";
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.backgroundColor = "transparent";
+            e.currentTarget.style.color = "rgba(255,255,255,0.7)";
+          }}
+          title={collapsed ? "ログアウト" : undefined}
+        >
+          <LogOut size={16} style={{ flexShrink: 0 }} />
+          {!collapsed && <span className="flex-1 truncate">ログアウト</span>}
+        </div>
+        <div
+          className="px-3 py-2"
+          style={{
+            borderTop: "1px solid rgba(255,255,255,0.08)",
+            fontSize: 10,
+            color: "rgba(255,255,255,0.3)",
+            textAlign: "center",
+          }}
+        >
+          {!collapsed && "A2E Prototype v0.1"}
+        </div>
       </div>
     </div>
   );
