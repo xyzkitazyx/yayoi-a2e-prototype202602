@@ -1,33 +1,21 @@
-import { useState } from "react";
+"use client";
+
+import { useState, useRef } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
+import { useQuery } from "@tanstack/react-query";
+import { fetchLedger, fetchAccounts } from "../../lib/api";
+import { useEffect } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 
 interface LedgerEntry {
   id: number;
   date: string;
-  counterAccount: string;
+  opposite_account: string;
   summary: string;
-  debit: number | null;
-  credit: number | null;
+  debit_amount: number | null;
+  credit_amount: number | null;
+  balance: number;
 }
-
-const MOCK_ENTRIES: LedgerEntry[] = [
-  { id: 0, date: "", counterAccount: "", summary: "前月繰越", debit: null, credit: null },
-  { id: 1, date: "04/01", counterAccount: "現金", summary: "東京出張 新幹線代", debit: null, credit: 15400 },
-  { id: 2, date: "04/03", counterAccount: "消耗品費", summary: "コピー用紙・トナー", debit: null, credit: 8800 },
-  { id: 3, date: "04/07", counterAccount: "買掛金", summary: "原材料仕入 4月分", debit: null, credit: 275000 },
-  { id: 4, date: "04/10", counterAccount: "給与手当", summary: "4月分給与支払", debit: null, credit: 2450000 },
-  { id: 5, date: "04/12", counterAccount: "通信費", summary: "インターネット・電話料金 4月分", debit: null, credit: 44000 },
-  { id: 6, date: "04/15", counterAccount: "地代家賃", summary: "事務所家賃 5月分", debit: null, credit: 330000 },
-  { id: 7, date: "04/18", counterAccount: "売掛金", summary: "売掛金回収 3月分", debit: 1100000, credit: null },
-  { id: 8, date: "04/20", counterAccount: "水道光熱費", summary: "電気料金 4月分", debit: null, credit: 67200 },
-  { id: 9, date: "04/22", counterAccount: "売上高", summary: "製品販売 A-100型", debit: 550000, credit: null },
-  { id: 10, date: "04/25", counterAccount: "法定福利費", summary: "社会保険料 事業主負担分", debit: null, credit: 385000 },
-  { id: 11, date: "04/28", counterAccount: "租税公課", summary: "固定資産税 第1期分", debit: null, credit: 120000 },
-  { id: 12, date: "04/28", counterAccount: "売掛金", summary: "売掛金回収 ㈱田中製作所", debit: 880000, credit: null },
-  { id: 13, date: "04/30", counterAccount: "受取利息", summary: "普通預金利息 4月分", debit: 1250, credit: null },
-  { id: 14, date: "04/30", counterAccount: "支払手数料", summary: "振込手数料 4月分", debit: null, credit: 3300 },
-];
-
-const OPENING_BALANCE = 5_800_000;
 
 function fmt(n: number | null): string {
   if (n === null || n === 0) return "";
@@ -35,296 +23,158 @@ function fmt(n: number | null): string {
 }
 
 export function SubsidiaryLedger() {
+  const queryClient = useQueryClient();
   const [selectedRow, setSelectedRow] = useState<number | null>(null);
-  const [selectedAccount, setSelectedAccount] = useState("普通預金");
-  const [selectedSub, setSelectedSub] = useState("みずほ銀行");
+  const [selectedAccountId, setSelectedAccountId] = useState<number | null>(null);
 
-  // Compute running balances
-  let balance = OPENING_BALANCE;
-  const entriesWithBalance = MOCK_ENTRIES.map((entry, idx) => {
-    if (idx === 0) {
-      return { ...entry, balance: OPENING_BALANCE };
-    }
-    balance += (entry.debit || 0) - (entry.credit || 0);
-    return { ...entry, balance };
+  useEffect(() => {
+    const handleAction = (e: CustomEvent) => {
+      if (e.detail === "refresh") {
+        queryClient.invalidateQueries({ queryKey: ["ledger"] });
+        queryClient.invalidateQueries({ queryKey: ["accounts"] });
+      }
+    };
+    window.addEventListener("a2e-toolbar-action", handleAction as EventListener);
+    return () => window.removeEventListener("a2e-toolbar-action", handleAction as EventListener);
+  }, [queryClient]);
+
+  const { data: accountsData = [] } = useQuery({
+    queryKey: ["accounts"],
+    queryFn: fetchAccounts,
+    staleTime: 1000 * 60 * 60,
   });
 
-  return (
-    <div
-      className="flex flex-col h-full"
-      style={{ fontFamily: "'Noto Sans JP', sans-serif" }}
-    >
-      {/* Title bar */}
-      <div
-        className="flex items-center justify-between px-2"
-        style={{
-          height: 26,
-          backgroundColor: "#005BAC",
-          color: "#fff",
-          fontSize: 12,
-        }}
-      >
-        <span>補助元帳</span>
-        <span style={{ fontSize: 11 }}>令和7年4月 ｜ 令和7年度</span>
-      </div>
+  const { data: ledgerData = [], isLoading } = useQuery({
+    queryKey: ["ledger", selectedAccountId],
+    queryFn: () => fetchLedger(selectedAccountId!),
+    enabled: !!selectedAccountId,
+    refetchInterval: 2000,
+  });
 
-      {/* Account selector */}
-      <div
-        className="flex items-center gap-3 px-2"
-        style={{
-          height: 30,
-          backgroundColor: "#f5f5f5",
-          borderBottom: "1px solid #c0c0c0",
-          fontSize: 12,
-        }}
-      >
-        <span style={{ color: "#555" }}>勘定科目:</span>
-        <select
-          value={selectedAccount}
-          onChange={(e) => setSelectedAccount(e.target.value)}
-          style={{
-            fontSize: 12,
-            padding: "1px 4px",
-            border: "1px solid #b0b0b0",
-            backgroundColor: "#fff",
-            borderRadius: 2,
-          }}
-        >
-          <option>普通預金</option>
-          <option>現金</option>
-          <option>売掛金</option>
-          <option>買掛金</option>
-        </select>
-        <span style={{ color: "#555" }}>補助科目:</span>
-        <select
-          value={selectedSub}
-          onChange={(e) => setSelectedSub(e.target.value)}
-          style={{
-            fontSize: 12,
-            padding: "1px 4px",
-            border: "1px solid #b0b0b0",
-            backgroundColor: "#fff",
-            borderRadius: 2,
-          }}
-        >
-          <option>みずほ銀行</option>
-          <option>三井住友銀行</option>
-          <option>三菱UFJ銀行</option>
-        </select>
-        <div style={{ marginLeft: "auto", color: "#555" }}>
-          期間:
-          <input
-            type="text"
-            defaultValue="04/01"
-            style={{
-              width: 52,
-              fontSize: 12,
-              padding: "1px 4px",
-              border: "1px solid #b0b0b0",
-              textAlign: "center",
-              marginLeft: 4,
-              borderRadius: 2,
-            }}
-          />
-          ～
-          <input
-            type="text"
-            defaultValue="04/30"
-            style={{
-              width: 52,
-              fontSize: 12,
-              padding: "1px 4px",
-              border: "1px solid #b0b0b0",
-              textAlign: "center",
-              borderRadius: 2,
-            }}
-          />
+  const parentRef = useRef<HTMLDivElement>(null);
+
+  const rowVirtualizer = useVirtualizer({
+    count: ledgerData.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => 24,
+    overscan: 20,
+  });
+
+  const columns = [
+    { label: "日付", width: 60, align: "center", key: "date" },
+    { label: "番号", width: 50, align: "center", key: "id" },
+    { label: "相手勘定科目", width: 140, align: "left", key: "opposite_account" },
+    { label: "摘要", width: "100%", align: "left", key: "summary" },
+    { label: "借方金額", width: 110, align: "right", key: "debit_amount" },
+    { label: "貸方金額", width: 110, align: "right", key: "credit_amount" },
+    { label: "残高", width: 120, align: "right", key: "balance" },
+  ];
+
+  return (
+    <div className="flex flex-col h-full bg-white select-none" style={{ fontFamily: "'Noto Sans JP', sans-serif" }}>
+      {/* Title bar */}
+      <div className="flex items-center justify-between px-2" style={{ height: 26, backgroundColor: "#005BAC", color: "#fff", fontSize: 12, flexShrink: 0 }}>
+        <span>補助元帳</span>
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-1">
+            <span>勘定科目:</span>
+            <select
+              value={selectedAccountId || ""}
+              onChange={(e) => setSelectedAccountId(Number(e.target.value))}
+              className="text-black text-[11px] px-1 h-5 outline-none"
+              style={{ border: "1px solid #b0b0b0", borderRadius: 2 }}
+            >
+              <option value="">選択してください</option>
+              {accountsData.map((a: any) => (
+                <option key={a.id} value={a.id}>{a.code} {a.name}</option>
+              ))}
+            </select>
+          </div>
+          <div className="text-[11px]">令和7年度</div>
         </div>
       </div>
 
+      {/* Header */}
+      <div className="flex" style={{ backgroundColor: "#d0dce8", borderBottom: "2px solid #005BAC", flexShrink: 0 }}>
+        {columns.map((col) => (
+          <div
+            key={col.label as string}
+            style={{
+              width: col.width,
+              padding: "4px 6px",
+              borderRight: "1px solid #b0b0b0",
+              textAlign: col.align as any,
+              fontSize: 11,
+              color: "#333",
+              flexShrink: col.width === "100%" ? 1 : 0,
+              flexGrow: col.width === "100%" ? 1 : 0,
+            }}
+          >
+            {col.label}
+          </div>
+        ))}
+      </div>
+
       {/* Grid */}
-      <div className="flex-1 overflow-auto">
-        <table
-          className="w-full"
-          style={{
-            borderCollapse: "collapse",
-            fontSize: 12,
-            tableLayout: "fixed",
-          }}
-        >
-          <thead>
-            <tr style={{ backgroundColor: "#d0dce8" }}>
-              {[
-                { label: "日付", width: 60 },
-                { label: "相手勘定科目", width: 120 },
-                { label: "摘要", width: 0 },
-                { label: "借方金額", width: 110 },
-                { label: "貸方金額", width: 110 },
-                { label: "残高", width: 120 },
-              ].map((col) => (
-                <th
-                  key={col.label}
-                  style={{
-                    width: col.width || undefined,
-                    minWidth: col.width || 160,
-                    padding: "4px 6px",
-                    borderRight: "1px solid #b0b0b0",
-                    borderBottom: "2px solid #005BAC",
-                    textAlign: "center",
-                    fontSize: 11,
-                    color: "#333",
-                  }}
-                >
-                  {col.label}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {entriesWithBalance.map((entry, idx) => {
-              const isSelected = selectedRow === idx;
+      <div ref={parentRef} className="flex-1 overflow-auto bg-white" tabIndex={0} style={{ outline: "none" }}>
+        {isLoading ? (
+          <div className="p-4 text-sm text-gray-500">読み込み中...</div>
+        ) : (
+          <div style={{ height: `${rowVirtualizer.getTotalSize()}px`, width: "100%", position: "relative" }}>
+            {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+              const entry = ledgerData[virtualRow.index];
+              const isSelected = selectedRow === virtualRow.index;
               const isNegative = entry.balance < 0;
-              const isOpening = idx === 0;
+
               return (
-                <tr
-                  key={entry.id}
+                <div
+                  key={virtualRow.index}
+                  className="flex absolute top-0 left-0 w-full"
                   style={{
-                    backgroundColor: isSelected
-                      ? "#e0ecf8"
-                      : idx % 2 === 0
-                      ? "#fff"
-                      : "#fafafa",
+                    height: `${virtualRow.size}px`,
+                    transform: `translateY(${virtualRow.start}px)`,
+                    backgroundColor: isSelected ? "#E1F1FF" : virtualRow.index % 2 === 0 ? "#fff" : "#FAFAFA",
                     cursor: "pointer",
+                    fontSize: 12,
                   }}
-                  onClick={() => setSelectedRow(idx)}
+                  onClick={() => setSelectedRow(virtualRow.index)}
                 >
-                  <td
-                    style={{
-                      padding: "3px 6px",
-                      textAlign: "center",
-                      borderRight: "1px solid #e0e0e0",
-                      borderBottom: "1px solid #e0e0e0",
-                      color: isOpening ? "#888" : "#333",
-                    }}
-                  >
+                  <div style={{ width: 60, padding: "2px 6px", textAlign: "center", borderRight: "1px solid #e0e0e0", borderBottom: "1px solid #e0e0e0", flexShrink: 0 }}>
                     {entry.date}
-                  </td>
-                  <td
-                    style={{
-                      padding: "3px 6px",
-                      borderRight: "1px solid #e0e0e0",
-                      borderBottom: "1px solid #e0e0e0",
-                      color: isOpening ? "#888" : "#333",
-                    }}
-                  >
-                    {entry.counterAccount}
-                  </td>
-                  <td
-                    style={{
-                      padding: "3px 6px",
-                      borderRight: "1px solid #e0e0e0",
-                      borderBottom: "1px solid #e0e0e0",
-                      color: isOpening ? "#888" : "#333",
-                    }}
-                  >
-                    {entry.summary}
-                  </td>
-                  <td
-                    style={{
-                      padding: "3px 6px",
-                      textAlign: "right",
-                      borderRight: "1px solid #e0e0e0",
-                      borderBottom: "1px solid #e0e0e0",
-                      fontVariantNumeric: "tabular-nums",
-                      color: entry.debit ? "#005BAC" : "#ccc",
-                    }}
-                  >
-                    {fmt(entry.debit)}
-                  </td>
-                  <td
-                    style={{
-                      padding: "3px 6px",
-                      textAlign: "right",
-                      borderRight: "1px solid #e0e0e0",
-                      borderBottom: "1px solid #e0e0e0",
-                      fontVariantNumeric: "tabular-nums",
-                      color: entry.credit ? "#c0392b" : "#ccc",
-                    }}
-                  >
-                    {fmt(entry.credit)}
-                  </td>
-                  <td
-                    style={{
-                      padding: "3px 6px",
-                      textAlign: "right",
-                      borderBottom: "1px solid #e0e0e0",
-                      fontVariantNumeric: "tabular-nums",
-                      color: isNegative ? "#e74c3c" : "#222",
-                      backgroundColor: isNegative
-                        ? "#fff5f5"
-                        : "transparent",
-                    }}
-                  >
+                  </div>
+                  <div style={{ width: 50, padding: "2px 6px", textAlign: "center", borderRight: "1px solid #e0e0e0", borderBottom: "1px solid #e0e0e0", color: "#888", flexShrink: 0 }}>
+                    {entry.id}
+                  </div>
+                  <div style={{ width: 140, padding: "2px 6px", borderRight: "1px solid #e0e0e0", borderBottom: "1px solid #e0e0e0", flexShrink: 0 }}>
+                    <span className="truncate block">{entry.opposite_account}</span>
+                  </div>
+                  <div style={{ flex: 1, padding: "2px 6px", borderRight: "1px solid #e0e0e0", borderBottom: "1px solid #e0e0e0", minWidth: 0 }}>
+                    <span className="truncate block">{entry.summary}</span>
+                  </div>
+                  <div style={{ width: 110, padding: "2px 6px", textAlign: "right", borderRight: "1px solid #e0e0e0", borderBottom: "1px solid #e0e0e0", fontVariantNumeric: "tabular-nums", color: entry.debit_amount ? "#005BAC" : "#ccc", flexShrink: 0 }}>
+                    {fmt(entry.debit_amount)}
+                  </div>
+                  <div style={{ width: 110, padding: "2px 6px", textAlign: "right", borderRight: "1px solid #e0e0e0", borderBottom: "1px solid #e0e0e0", fontVariantNumeric: "tabular-nums", color: entry.credit_amount ? "#C0392B" : "#ccc", flexShrink: 0 }}>
+                    {fmt(entry.credit_amount)}
+                  </div>
+                  <div style={{ width: 120, padding: "2px 6px", textAlign: "right", borderBottom: "1px solid #e0e0e0", fontVariantNumeric: "tabular-nums", color: isNegative ? "#E74C3C" : "#222", backgroundColor: isNegative ? "#fff5f5" : "transparent", flexShrink: 0, fontWeight: "bold" }}>
                     {isNegative && "△"}
                     {Math.abs(entry.balance).toLocaleString()}
-                  </td>
-                </tr>
+                  </div>
+                </div>
               );
             })}
-          </tbody>
-        </table>
+          </div>
+        )}
       </div>
 
       {/* Footer */}
-      <div
-        className="flex items-center justify-between px-2"
-        style={{
-          height: 28,
-          backgroundColor: "#e8e8e8",
-          borderTop: "2px solid #005BAC",
-          fontSize: 12,
-        }}
-      >
-        <span style={{ color: "#555" }}>
-          {selectedAccount}（{selectedSub}） 件数:{" "}
-          {entriesWithBalance.length - 1}件
-        </span>
+      <div className="flex items-center justify-between px-2" style={{ height: 28, backgroundColor: "#E8E8E8", borderTop: "2px solid #005BAC", fontSize: 12, flexShrink: 0 }}>
+        <span style={{ color: "#555" }}>件数: {ledgerData.length.toLocaleString()}件</span>
         <div className="flex items-center gap-6">
-          <span>
-            借方合計:{" "}
-            <span style={{ color: "#005BAC", fontVariantNumeric: "tabular-nums" }}>
-              ¥
-              {entriesWithBalance
-                .reduce((s, e) => s + (e.debit || 0), 0)
-                .toLocaleString()}
-            </span>
-          </span>
-          <span>
-            貸方合計:{" "}
-            <span style={{ color: "#c0392b", fontVariantNumeric: "tabular-nums" }}>
-              ¥
-              {entriesWithBalance
-                .reduce((s, e) => s + (e.credit || 0), 0)
-                .toLocaleString()}
-            </span>
-          </span>
-          <span>
-            残高:{" "}
-            <span
-              style={{
-                fontVariantNumeric: "tabular-nums",
-                color:
-                  entriesWithBalance[entriesWithBalance.length - 1].balance < 0
-                    ? "#e74c3c"
-                    : "#27ae60",
-              }}
-            >
-              ¥
-              {Math.abs(
-                entriesWithBalance[entriesWithBalance.length - 1].balance
-              ).toLocaleString()}
-            </span>
-          </span>
+          <span>借方合計: <span style={{ color: "#005BAC", fontWeight: "bold" }}>¥{ledgerData.reduce((s: number, e: any) => s + (e.debit_amount || 0), 0).toLocaleString()}</span></span>
+          <span>貸方合計: <span style={{ color: "#C0392B", fontWeight: "bold" }}>¥{ledgerData.reduce((s: number, e: any) => s + (e.credit_amount || 0), 0).toLocaleString()}</span></span>
+          <span>合計残高: <span style={{ color: ledgerData.length > 0 && ledgerData[ledgerData.length - 1].balance < 0 ? "#E74C3C" : "#27AE60", fontWeight: "bold" }}>¥{ledgerData.length > 0 ? Math.abs(ledgerData[ledgerData.length - 1].balance).toLocaleString() : "0"}</span></span>
         </div>
       </div>
     </div>

@@ -34,11 +34,11 @@ const toolbarButtons: ToolbarButton[] = [
 export function Toolbar() {
   return (
     <div
-      className="flex items-center gap-0.5 px-1"
+      className="print-hidden flex items-center gap-1 px-2 border-b"
       style={{
-        height: 36,
-        backgroundColor: "#e8e8e8",
-        borderBottom: "1px solid #c0c0c0",
+        height: 48,
+        backgroundColor: "#FFFFFF",
+        borderColor: "#c0c0c0",
         fontFamily: "'Noto Sans JP', sans-serif",
         userSelect: "none",
         flexShrink: 0,
@@ -47,16 +47,34 @@ export function Toolbar() {
       {toolbarButtons.map((btn, idx) => (
         <button
           key={btn.label}
-          className="flex items-center gap-1 cursor-pointer rounded-sm"
+          className="flex flex-col items-center justify-center gap-0.5 cursor-pointer rounded"
           style={{
             padding: "2px 8px",
-            height: 28,
+            height: 40,
+            minWidth: 48,
             border: "1px solid transparent",
             backgroundColor: "transparent",
-            fontSize: 11,
+            fontSize: 10,
             color: btn.disabled ? "#999" : "#333",
             whiteSpace: "nowrap",
             transition: "all 0.05s",
+          }}
+          onClick={() => {
+            const actionMap: Record<string, string> = {
+              "F12": "submit",
+              "F11": "cancel",
+              "F10": "search",
+              "F9": "delete",
+              "F8": "insert_row",
+              "F7": "delete_row",
+              "F4": "reference",
+              "F3": "dictionary",
+              "F5": "refresh"
+            };
+            const action = actionMap[btn.shortcut];
+            if (action) {
+              window.dispatchEvent(new CustomEvent("a2e-toolbar-action", { detail: action }));
+            }
           }}
           onMouseEnter={(e) => {
             e.currentTarget.style.backgroundColor = "#fff";
@@ -74,11 +92,11 @@ export function Toolbar() {
           }}
           title={`${btn.label} (${btn.shortcut})`}
         >
-          <btn.icon size={14} />
-          <span>
+          <btn.icon size={16} />
+          <span className="flex items-center gap-1">
             {btn.label}
-            <span style={{ fontSize: 10, color: "#666", marginLeft: 2 }}>
-              ({btn.shortcut})
+            <span style={{ fontSize: 9, color: "#888" }}>
+              {btn.shortcut}
             </span>
           </span>
         </button>

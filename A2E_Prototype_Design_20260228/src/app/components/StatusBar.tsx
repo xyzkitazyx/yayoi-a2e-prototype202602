@@ -2,15 +2,17 @@ import { useState, useEffect } from "react";
 
 export function StatusBar() {
   const [time, setTime] = useState(new Date());
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
+    setMounted(true);
     const timer = setInterval(() => setTime(new Date()), 1000);
     return () => clearInterval(timer);
   }, []);
 
   return (
     <div
-      className="flex items-center justify-between px-2"
+      className="print-hidden flex items-center justify-between px-2"
       style={{
         height: 22,
         backgroundColor: "#e0e0e0",
@@ -23,6 +25,11 @@ export function StatusBar() {
       }}
     >
       <div className="flex items-center gap-4">
+        <div className="flex items-center gap-1.5">
+          <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+          <span className="font-bold text-[#005BAC]">Cloud Synced</span>
+        </div>
+        <span style={{ color: "#999" }}>|</span>
         <span>準備完了</span>
         <span style={{ color: "#999" }}>|</span>
         <span>株式会社サンプル</span>
@@ -33,7 +40,7 @@ export function StatusBar() {
         <span>INS</span>
         <span style={{ color: "#999" }}>|</span>
         <span>
-          {time.toLocaleDateString("ja-JP")} {time.toLocaleTimeString("ja-JP")}
+          {mounted ? `${time.toLocaleDateString("ja-JP")} ${time.toLocaleTimeString("ja-JP")}` : ""}
         </span>
       </div>
     </div>

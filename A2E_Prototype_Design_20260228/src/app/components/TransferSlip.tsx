@@ -1,929 +1,614 @@
-import { useState, useRef, useCallback } from "react";
+"use client";
+
+import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import {
   AccountSearchPopup,
   type AccountItem,
+  type SearchType,
 } from "./AccountSearchPopup";
+import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
+import { toast } from "sonner";
+import { fetchAccounts, createJournal, fetchJournal, fetchDiary } from "../../lib/api";
 
 interface SlipRow {
-  id: number;
+  id: number | null; // null for new rows
   date: string;
   debitAccount: string;
   debitSub: string;
   debitDept: string;
   debitTax: string;
+  debitTaxRate: string;
   debitAmount: string;
+  debitTaxAmount: string;
+
   creditAccount: string;
   creditSub: string;
   creditDept: string;
   creditTax: string;
+  creditTaxRate: string;
   creditAmount: string;
+  creditTaxAmount: string;
+
   summary: string;
+  client: string;
 }
 
-const INITIAL_ROWS: SlipRow[] = [
-  {
-    id: 1,
-    date: "04/01",
-    debitAccount: "旅費交通費",
-    debitSub: "",
-    debitDept: "営業部",
-    debitTax: "課税仕入10%",
-    debitAmount: "15,400",
-    creditAccount: "現金",
-    creditSub: "",
-    creditDept: "",
-    creditTax: "対象外",
-    creditAmount: "15,400",
-    summary: "東京出張 新幹線代",
-  },
-  {
-    id: 2,
-    date: "04/03",
-    debitAccount: "消耗品費",
-    debitSub: "",
-    debitDept: "総務部",
-    debitTax: "課税仕入10%",
-    debitAmount: "8,800",
-    creditAccount: "普通預金",
-    creditSub: "みずほ銀行",
-    creditDept: "",
-    creditTax: "対象外",
-    creditAmount: "8,800",
-    summary: "コピー用紙・トナー",
-  },
-  {
-    id: 3,
-    date: "04/05",
-    debitAccount: "接待交際費",
-    debitSub: "",
-    debitDept: "営業部",
-    debitTax: "課税仕入10%",
-    debitAmount: "32,000",
-    creditAccount: "未払金",
-    creditSub: "JCBカード",
-    creditDept: "",
-    creditTax: "対象外",
-    creditAmount: "32,000",
-    summary: "得意先接待 〇〇料亭",
-  },
-  {
-    id: 4,
-    date: "04/07",
-    debitAccount: "仕入高",
-    debitSub: "",
-    debitDept: "製造部",
-    debitTax: "課税仕入10%",
-    debitAmount: "275,000",
-    creditAccount: "買掛金",
-    creditSub: "㈱山田商事",
-    creditDept: "",
-    creditTax: "対象外",
-    creditAmount: "275,000",
-    summary: "原材料仕入 4月分",
-  },
-  {
-    id: 5,
-    date: "04/10",
-    debitAccount: "給与手当",
-    debitSub: "",
-    debitDept: "全社",
-    debitTax: "対象外",
-    debitAmount: "2,450,000",
-    creditAccount: "普通預金",
-    creditSub: "三井住友銀行",
-    creditDept: "",
-    creditTax: "対象外",
-    creditAmount: "2,450,000",
-    summary: "4月分給与支払",
-  },
-  {
-    id: 6,
-    date: "04/12",
-    debitAccount: "通信費",
-    debitSub: "",
-    debitDept: "総務部",
-    debitTax: "課税仕入10%",
-    debitAmount: "44,000",
-    creditAccount: "普通預金",
-    creditSub: "みずほ銀行",
-    creditDept: "",
-    creditTax: "対象外",
-    creditAmount: "44,000",
-    summary: "インターネット・電話料金 4月分",
-  },
-  {
-    id: 7,
-    date: "04/15",
-    debitAccount: "地代家賃",
-    debitSub: "",
-    debitDept: "全社",
-    debitTax: "非課税仕入",
-    debitAmount: "330,000",
-    creditAccount: "普通預金",
-    creditSub: "三井住友銀行",
-    creditDept: "",
-    creditTax: "対象外",
-    creditAmount: "330,000",
-    summary: "事務所家賃 5月分",
-  },
-  {
-    id: 8,
-    date: "04/18",
-    debitAccount: "普通預金",
-    debitSub: "みずほ銀行",
-    debitDept: "",
-    debitTax: "対象外",
-    debitAmount: "1,100,000",
-    creditAccount: "売掛金",
-    creditSub: "㈱鈴木工業",
-    creditDept: "",
-    creditTax: "対象外",
-    creditAmount: "1,100,000",
-    summary: "売掛金回収 3月分",
-  },
-  {
-    id: 9,
-    date: "04/20",
-    debitAccount: "水道光熱費",
-    debitSub: "",
-    debitDept: "全社",
-    debitTax: "課税仕入10%",
-    debitAmount: "67,200",
-    creditAccount: "普通預金",
-    creditSub: "みずほ銀行",
-    creditDept: "",
-    creditTax: "対象外",
-    creditAmount: "67,200",
-    summary: "電気料金 4月分",
-  },
-  {
-    id: 10,
-    date: "04/22",
-    debitAccount: "売掛金",
-    debitSub: "㈱田中製作所",
-    debitDept: "営業部",
-    debitTax: "課税売上10%",
-    debitAmount: "550,000",
-    creditAccount: "売上高",
-    creditSub: "",
-    creditDept: "営業部",
-    creditTax: "課税売上10%",
-    creditAmount: "550,000",
-    summary: "製品販売 A-100型",
-  },
-  {
-    id: 11,
-    date: "04/25",
-    debitAccount: "法定福利費",
-    debitSub: "",
-    debitDept: "全社",
-    debitTax: "対象外",
-    debitAmount: "385,000",
-    creditAccount: "普通預金",
-    creditSub: "三井住友銀行",
-    creditDept: "",
-    creditTax: "対象外",
-    creditAmount: "385,000",
-    summary: "社会保険料 事業主負担分",
-  },
-  {
-    id: 12,
-    date: "04/28",
-    debitAccount: "租税公課",
-    debitSub: "",
-    debitDept: "全社",
-    debitTax: "対象外",
-    debitAmount: "120,000",
-    creditAccount: "普通預金",
-    creditSub: "みずほ銀行",
-    creditDept: "",
-    creditTax: "対象外",
-    creditAmount: "120,000",
-    summary: "固定資産税 第1期分",
-  },
+const INITIAL_ROWS: SlipRow[] = Array.from({ length: 1 }).map((_, i) => ({
+  id: null,
+  date: "",
+  debitAccount: "", debitSub: "", debitDept: "", debitTax: "", debitTaxRate: "", debitAmount: "", debitTaxAmount: "",
+  creditAccount: "", creditSub: "", creditDept: "", creditTax: "", creditTaxRate: "", creditAmount: "", creditTaxAmount: "",
+  summary: "", client: ""
+}));
+
+const FIELDS = [
+  "date",
+  "debitAccount", "debitSub",
+  "debitAmount", "debitTaxAmount",
+  "debitDept", "debitTax", "debitTaxRate",
+  "creditAccount", "creditSub",
+  "creditAmount", "creditTaxAmount",
+  "creditDept", "creditTax", "creditTaxRate",
+  "summary", "client"
 ];
 
-const COLUMNS_DEBIT = [
-  {
-    key: "date",
-    label: "日付",
-    width: 56,
-    align: "center" as const,
-  },
-  {
-    key: "debitAccount",
-    label: "借方勘定科目",
-    width: 110,
-    align: "left" as const,
-    isAccount: true,
-  },
-  {
-    key: "debitSub",
-    label: "借方補助",
-    width: 90,
-    align: "left" as const,
-  },
-  {
-    key: "debitDept",
-    label: "部門",
-    width: 64,
-    align: "left" as const,
-  },
-  {
-    key: "debitTax",
-    label: "税区分",
-    width: 90,
-    align: "left" as const,
-  },
-  {
-    key: "debitAmount",
-    label: "借方金額",
-    width: 100,
-    align: "right" as const,
-  },
-  {
-    key: "summary",
-    label: "摘要",
-    width: 0,
-    align: "left" as const,
-  },
-];
+function getSearchType(field: string): SearchType | null {
+  if (field.includes("Account")) return "account";
+  if (field.includes("Sub")) return "sub";
+  if (field.includes("Dept")) return "dept";
+  if (field.includes("TaxRate")) return "taxRate";
+  if (field.includes("Tax")) return "tax";
+  return null;
+}
 
-const COLUMNS_CREDIT = [
-  {
-    key: "date",
-    label: "",
-    width: 56,
-    align: "center" as const,
-  },
-  {
-    key: "creditAccount",
-    label: "貸方勘定科目",
-    width: 110,
-    align: "left" as const,
-    isAccount: true,
-  },
-  {
-    key: "creditSub",
-    label: "貸方補助",
-    width: 90,
-    align: "left" as const,
-  },
-  {
-    key: "creditDept",
-    label: "部門",
-    width: 64,
-    align: "left" as const,
-  },
-  {
-    key: "creditTax",
-    label: "税区分",
-    width: 90,
-    align: "left" as const,
-  },
-  {
-    key: "creditAmount",
-    label: "貸方金額",
-    width: 100,
-    align: "right" as const,
-  },
-  {
-    key: "summary",
-    label: "",
-    width: 0,
-    align: "left" as const,
-  },
-];
+interface TransferSlipProps {
+  initialJournalId?: number;
+}
 
-type CellId = {
-  row: number;
-  col: number;
-  line: "debit" | "credit";
-};
-
-export function TransferSlip() {
+export function TransferSlip({ initialJournalId }: TransferSlipProps) {
   const [rows, setRows] = useState<SlipRow[]>(INITIAL_ROWS);
-  const [focusedCell, setFocusedCell] = useState<CellId | null>(
-    null,
-  );
-  const [editingCell, setEditingCell] = useState<CellId | null>(
-    null,
-  );
+  const hasLoadedRef = useRef(false);
+  const [focusedCell, setFocusedCell] = useState<{ row: number; field: string } | null>(null);
   const [editValue, setEditValue] = useState("");
-  const [selectedRow, setSelectedRow] = useState<number | null>(
-    null,
-  );
   const [accountPopup, setAccountPopup] = useState<{
     isOpen: boolean;
-    cellId: CellId | null;
+    row: number;
+    field: string;
+    searchType: SearchType;
     anchorRect: { top: number; left: number } | null;
-  }>({ isOpen: false, cellId: null, anchorRect: null });
+  }>({ isOpen: false, row: -1, field: "", searchType: "account", anchorRect: null });
 
-  const editInputRef = useRef<HTMLInputElement>(null);
-  const tableRef = useRef<HTMLTableElement>(null);
+  const queryClient = useQueryClient();
+  const { data: accountsData = [] } = useQuery({
+    queryKey: ["accounts"],
+    queryFn: fetchAccounts,
+    staleTime: 1000 * 60 * 60,
+  });
 
-  // Helper: get columns for a given line
-  const getColumns = (line: "debit" | "credit") =>
-    line === "debit" ? COLUMNS_DEBIT : COLUMNS_CREDIT;
+  const { data: initialJournal } = useQuery({
+    queryKey: ["journal", initialJournalId],
+    queryFn: () => fetchJournal(initialJournalId!),
+    enabled: !!initialJournalId,
+  });
 
-  // Helper: get the field key for a cell
-  const getCellKey = (cellId: CellId): string => {
-    const cols = getColumns(cellId.line);
-    return cols[cellId.col]?.key || "";
-  };
+  const { data: latestJournals } = useQuery({
+    queryKey: ["diary"],
+    queryFn: fetchDiary,
+    enabled: !initialJournalId,
+  });
 
-  // Helper: check if a column is an account column
-  const isAccountColumn = (cellId: CellId): boolean => {
-    const cols = getColumns(cellId.line);
-    return !!(cols[cellId.col] as any)?.isAccount;
-  };
+  // Map latestJournals or initialJournal to rows
+  useEffect(() => {
+    if (hasLoadedRef.current) return;
 
-  // Start editing a cell
-  const startEditing = useCallback(
-    (cellId: CellId) => {
-      const key = getCellKey(cellId);
-      const value = (rows[cellId.row] as any)[key] || "";
-      setEditingCell(cellId);
-      setEditValue(value);
-      setTimeout(() => editInputRef.current?.focus(), 10);
-    },
-    [rows],
-  );
+    if (initialJournalId && initialJournal && accountsData.length > 0) {
+      // Single drill-down mode
+      hasLoadedRef.current = true;
+      const debitAcc = accountsData.find((a: any) => a.id === initialJournal.debit_account_id);
+      const creditAcc = accountsData.find((a: any) => a.id === initialJournal.credit_account_id);
 
-  // Commit edit
-  const commitEdit = useCallback(() => {
-    if (!editingCell) return;
-    const key = getCellKey(editingCell);
-    setRows((prev) => {
-      const newRows = [...prev];
-      newRows[editingCell.row] = {
-        ...newRows[editingCell.row],
-        [key]: editValue,
+      const loadedRow: SlipRow = {
+        id: initialJournal.id,
+        date: initialJournal.date,
+        debitAccount: debitAcc?.name || "",
+        debitSub: "",
+        debitDept: "",
+        debitTax: debitAcc?.tax_type || "",
+        debitTaxRate: "10%",
+        debitAmount: initialJournal.debit_amount?.toLocaleString() || "0",
+        debitTaxAmount: initialJournal.debit_tax_amount?.toLocaleString() || "0",
+        creditAccount: creditAcc?.name || "",
+        creditSub: "",
+        creditDept: "",
+        creditTax: creditAcc?.tax_type || "",
+        creditTaxRate: "10%",
+        creditAmount: initialJournal.credit_amount?.toLocaleString() || "0",
+        creditTaxAmount: initialJournal.credit_tax_amount?.toLocaleString() || "0",
+        summary: initialJournal.summary || "",
+        client: "",
       };
+
+      setRows((prev) => [loadedRow, ...prev.slice(1)]);
+    } else if (!initialJournalId && latestJournals && latestJournals.length > 0 && accountsData.length > 0) {
+      // Bulk load mode - DISABLED for "Clean Entry" preference
+      /*
+      hasLoadedRef.current = true;
+      const newRows = [...INITIAL_ROWS];
+      latestJournals.slice(0, 15).forEach((j: any, i: number) => {
+        const dAcc = accountsData.find((a: any) => a.id === j.debit_account_id);
+        const cAcc = accountsData.find((a: any) => a.id === j.credit_account_id);
+        newRows[i] = {
+          id: j.id,
+          date: j.date,
+          debitAccount: dAcc?.name || "",
+          debitSub: "", debitDept: "",
+          debitTax: dAcc?.tax_type || "",
+          debitTaxRate: "10%",
+          debitAmount: j.debit_amount?.toLocaleString() || "0",
+          debitTaxAmount: j.debit_tax_amount?.toLocaleString() || "0",
+          creditAccount: cAcc?.name || "",
+          creditSub: "", creditDept: "",
+          creditTax: cAcc?.tax_type || "",
+          creditTaxRate: "10%",
+          creditAmount: j.credit_amount?.toLocaleString() || "0",
+          creditTaxAmount: j.credit_tax_amount?.toLocaleString() || "0",
+          summary: j.summary || "",
+          client: ""
+        };
+      });
+      setRows(newRows);
+      */
+    }
+  }, [initialJournal, latestJournals, accountsData, initialJournalId]);
+
+  const mutation = useMutation({
+    mutationFn: async (rowsToSave: SlipRow[]) => {
+      const validRows = rowsToSave.filter(r => {
+        const d = parseInt(r.debitAmount.replace(/,/g, ""), 10) || 0;
+        const c = parseInt(r.creditAmount.replace(/,/g, ""), 10) || 0;
+        return d > 0 || c > 0;
+      });
+
+      if (validRows.length === 0) throw new Error("保存するデータがありません。");
+
+      const promises = validRows.map(async (r) => {
+        const debitAcc = accountsData.find((a: any) => a.name === r.debitAccount);
+        const creditAcc = accountsData.find((a: any) => a.name === r.creditAccount);
+
+        return createJournal({
+          id: r.id,
+          date: r.date || new Date().toLocaleDateString('ja-JP', { month: '2-digit', day: '2-digit' }),
+          debit_account_id: debitAcc?.id || null,
+          debit_amount: parseInt(r.debitAmount.replace(/,/g, ""), 10) || null,
+          debit_tax_amount: parseInt(r.debitTaxAmount.replace(/,/g, ""), 10) || 0,
+          credit_account_id: creditAcc?.id || null,
+          credit_amount: parseInt(r.creditAmount.replace(/,/g, ""), 10) || null,
+          credit_tax_amount: parseInt(r.creditTaxAmount.replace(/,/g, ""), 10) || 0,
+          summary: r.summary
+        });
+      });
+      return Promise.all(promises);
+    },
+    onSuccess: () => {
+      toast.success("伝票を登録しました", { position: "top-center" });
+      queryClient.invalidateQueries({ queryKey: ["trial-balance"] });
+      queryClient.invalidateQueries({ queryKey: ["diary"] });
+      queryClient.invalidateQueries({ queryKey: ["ledger"] });
+    },
+    onError: (err: any) => {
+      toast.error(err.message, { position: "top-center" });
+    }
+  });
+
+  useEffect(() => {
+    const handleAction = (e: CustomEvent) => {
+      const action = e.detail;
+      if (action === "submit") mutation.mutate(rows);
+      if (action === "cancel") {
+        toast.info("入力を取り消しました", { position: "top-center" });
+      }
+      if (action === "refresh") {
+        queryClient.invalidateQueries({ queryKey: ["journal"] });
+        queryClient.invalidateQueries({ queryKey: ["accounts"] });
+      }
+
+      if (action === "dictionary") {
+        toast.info("辞書機能は実装準備中です", { position: "top-center" });
+        return;
+      }
+
+      if (action === "reference") {
+        if (focusedCell) {
+          const st = getSearchType(focusedCell.field);
+          if (st) {
+            // We need the rect of the focused cell
+            const el = document.querySelector(`[data-row="${focusedCell.row}"][data-field="${focusedCell.field}"]`);
+            if (el) {
+              const r = el.getBoundingClientRect();
+              setAccountPopup({
+                isOpen: true,
+                row: focusedCell.row,
+                field: focusedCell.field,
+                searchType: st,
+                anchorRect: { top: r.bottom, left: r.left }
+              });
+            }
+          }
+        }
+      }
+
+      if (action === "delete") {
+        if (window.confirm("伝票の内容をすべて削除してもよろしいですか？")) {
+          setRows(INITIAL_ROWS);
+          setFocusedCell({ row: 0, field: "date" });
+          setEditValue("");
+        }
+      }
+      if (action === "new_slip") {
+        setRows(INITIAL_ROWS);
+        setFocusedCell({ row: 0, field: "date" });
+        setEditValue("");
+      }
+      if (action === "delete_row") {
+        const focusedRowIndex = focusedCell?.row ?? -1;
+        if (focusedRowIndex !== -1 && rows.length > 1) {
+          setRows((prev) => {
+            const newRows = [...prev];
+            newRows.splice(focusedRowIndex, 1);
+            return newRows;
+          });
+        }
+      }
+      if (e.detail === "insert_row") {
+        const focusedRowIndex = focusedCell?.row ?? -1;
+        if (focusedRowIndex !== -1) {
+          setRows((prev) => {
+            const newRows = [...prev];
+            newRows.splice(focusedRowIndex, 0, {
+              id: null, date: "",
+              debitAccount: "", debitSub: "", debitDept: "", debitTax: "", debitTaxRate: "", debitAmount: "", debitTaxAmount: "",
+              creditAccount: "", creditSub: "", creditDept: "", creditTax: "", creditTaxRate: "", creditAmount: "", creditTaxAmount: "",
+              summary: "", client: ""
+            });
+            return newRows;
+          });
+        }
+      }
+    };
+    window.addEventListener("a2e-toolbar-action", handleAction as EventListener);
+    return () => window.removeEventListener("a2e-toolbar-action", handleAction as EventListener);
+  }, [rows, mutation, focusedCell]);
+
+  const commitEdit = useCallback((customVal?: string) => {
+    if (!focusedCell) return;
+    setRows(prev => {
+      const newRows = [...prev];
+      let val = customVal !== undefined ? customVal : editValue;
+      if (focusedCell.field.includes("TaxRate") && val && !val.includes("%") && !isNaN(Number(val))) {
+        val += "%";
+      }
+      if (newRows[focusedCell.row]) {
+        (newRows[focusedCell.row] as any)[focusedCell.field] = val;
+      }
+
+      // Ensure tax calculation triggers automatically if an amount, rate, or account changed
+      const row = newRows[focusedCell.row];
+      if (!row) return prev; // Safety check
+
+      const calcTax = (amtStr: string, rateStr: string, taxType: string) => {
+        if (!taxType) taxType = "";
+        if (taxType.includes("対象外") || taxType.includes("非課税")) return "0";
+        const rate = parseInt(rateStr.replace("%", ""), 10) || 0;
+        const amt = parseInt((amtStr || "").replace(/,/g, ""), 10) || 0;
+        return Math.floor(amt * (rate / 100)).toLocaleString();
+      };
+
+      if (focusedCell.field.startsWith("debit")) {
+        row.debitTaxAmount = calcTax(row.debitAmount, row.debitTaxRate, row.debitTax);
+      } else if (focusedCell.field.startsWith("credit")) {
+        row.creditTaxAmount = calcTax(row.creditAmount, row.creditTaxRate, row.creditTax);
+      }
+
       return newRows;
     });
-    setEditingCell(null);
-    setEditValue("");
-  }, [editingCell, editValue]);
+  }, [focusedCell, editValue]);
 
-  // Cancel edit
-  const cancelEdit = useCallback(() => {
-    setEditingCell(null);
-    setEditValue("");
-  }, []);
+  const navigate = useCallback((dir: "next" | "prev") => {
+    if (!focusedCell) return;
+    const idx = FIELDS.indexOf(focusedCell.field);
+    let nextRow = focusedCell.row;
+    let nextIdx = idx + (dir === "next" ? 1 : -1);
 
-  // Navigate to next cell
-  const navigateCell = useCallback(
-    (direction: "right" | "left" | "down" | "up") => {
-      if (!focusedCell) return;
-      const { row, col, line } = focusedCell;
-      const cols = getColumns(line);
-      let newRow = row;
-      let newCol = col;
-      let newLine = line;
-
-      if (direction === "right") {
-        if (newCol < cols.length - 1) {
-          newCol++;
-        } else if (newLine === "debit") {
-          newLine = "credit";
-          newCol = 0;
-        } else if (newRow < rows.length - 1) {
-          newRow++;
-          newLine = "debit";
-          newCol = 0;
-        }
-      } else if (direction === "left") {
-        if (newCol > 0) {
-          newCol--;
-        } else if (newLine === "credit") {
-          newLine = "debit";
-          newCol = cols.length - 1;
-        } else if (newRow > 0) {
-          newRow--;
-          newLine = "credit";
-          newCol = cols.length - 1;
-        }
-      } else if (direction === "down") {
-        if (newLine === "debit") {
-          newLine = "credit";
-        } else if (newRow < rows.length - 1) {
-          newRow++;
-          newLine = "debit";
-        }
-      } else if (direction === "up") {
-        if (newLine === "credit") {
-          newLine = "debit";
-        } else if (newRow > 0) {
-          newRow--;
-          newLine = "credit";
-        }
+    // AE Warp Logic Removed: Now moves in sequence
+    if (dir === "next" && focusedCell.field === "client") {
+      if (nextRow < rows.length - 1) {
+        nextRow++;
+        nextIdx = FIELDS.indexOf("debitAccount");
       }
-
-      setFocusedCell({
-        row: newRow,
-        col: newCol,
-        line: newLine,
-      });
-      setSelectedRow(newRow);
-    },
-    [focusedCell, rows.length],
-  );
-
-  // Open account search popup
-  const openAccountSearch = useCallback(
-    (cellId: CellId, anchorEl?: HTMLElement) => {
-      let rect = { top: 200, left: 300 };
-      if (anchorEl) {
-        const r = anchorEl.getBoundingClientRect();
-        rect = { top: r.bottom + 2, left: r.left };
-      }
-      setAccountPopup({
-        isOpen: true,
-        cellId,
-        anchorRect: rect,
-      });
-    },
-    [],
-  );
-
-  // Handle account selection from popup
-  const handleAccountSelect = useCallback(
-    (account: AccountItem) => {
-      if (!accountPopup.cellId) return;
-      const cellId = accountPopup.cellId;
-      const key = getCellKey(cellId);
-      // Also auto-fill tax type
-      const taxKey = key.replace("Account", "Tax");
-      setRows((prev) => {
-        const newRows = [...prev];
-        newRows[cellId.row] = {
-          ...newRows[cellId.row],
-          [key]: account.name,
-          ...(taxKey !== key
-            ? { [taxKey]: account.taxType }
-            : {}),
-        };
-        return newRows;
-      });
-      setAccountPopup({
-        isOpen: false,
-        cellId: null,
-        anchorRect: null,
-      });
-      // Move focus to next cell
-      if (focusedCell) {
-        navigateCell("right");
-      }
-    },
-    [accountPopup.cellId, focusedCell, navigateCell],
-  );
-
-  // Global keyboard handler for the table
-  const handleTableKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      // F4 - Open account search
-      if (e.key === "F4" && focusedCell) {
-        e.preventDefault();
-        if (isAccountColumn(focusedCell)) {
-          const cellEl = document.querySelector(
-            `[data-cell="${focusedCell.row}-${focusedCell.col}-${focusedCell.line}"]`,
-          ) as HTMLElement;
-          openAccountSearch(focusedCell, cellEl || undefined);
-        }
-        return;
-      }
-
-      // If editing
-      if (editingCell) {
-        if (e.key === "Enter" || e.key === "Tab") {
-          e.preventDefault();
-          commitEdit();
-          if (e.key === "Tab") {
-            navigateCell(e.shiftKey ? "left" : "right");
-          } else {
-            navigateCell("down");
-          }
-        } else if (e.key === "Escape") {
-          e.preventDefault();
-          cancelEdit();
-        }
-        return;
-      }
-
-      // If not editing
-      if (e.key === "Tab") {
-        e.preventDefault();
-        navigateCell(e.shiftKey ? "left" : "right");
-      } else if (e.key === "ArrowRight") {
-        e.preventDefault();
-        navigateCell("right");
-      } else if (e.key === "ArrowLeft") {
-        e.preventDefault();
-        navigateCell("left");
-      } else if (e.key === "ArrowDown") {
-        e.preventDefault();
-        navigateCell("down");
-      } else if (e.key === "ArrowUp") {
-        e.preventDefault();
-        navigateCell("up");
-      } else if (e.key === "Enter" || e.key === "F2") {
-        e.preventDefault();
-        if (focusedCell) {
-          startEditing(focusedCell);
-        }
-      } else if (
-        e.key.length === 1 &&
-        !e.ctrlKey &&
-        !e.altKey &&
-        !e.metaKey &&
-        focusedCell
-      ) {
-        // Direct typing starts editing
-        const key = getCellKey(focusedCell);
-        setEditingCell(focusedCell);
-        setEditValue(e.key);
-        setTimeout(() => editInputRef.current?.focus(), 10);
-      }
-    },
-    [
-      focusedCell,
-      editingCell,
-      commitEdit,
-      cancelEdit,
-      navigateCell,
-      startEditing,
-      openAccountSearch,
-    ],
-  );
-
-  const handleCellClick = (
-    rowIdx: number,
-    colIdx: number,
-    line: "debit" | "credit",
-  ) => {
-    // Commit any current edit
-    if (editingCell) commitEdit();
-    const cellId = { row: rowIdx, col: colIdx, line };
-    setFocusedCell(cellId);
-    setSelectedRow(rowIdx);
-  };
-
-  const handleCellDoubleClick = (
-    rowIdx: number,
-    colIdx: number,
-    line: "debit" | "credit",
-  ) => {
-    const cellId = { row: rowIdx, col: colIdx, line };
-    setFocusedCell(cellId);
-    setSelectedRow(rowIdx);
-    // If account column, open popup; otherwise start editing
-    if (isAccountColumn(cellId)) {
-      const cellEl = document.querySelector(
-        `[data-cell="${rowIdx}-${colIdx}-${line}"]`,
-      ) as HTMLElement;
-      openAccountSearch(cellId, cellEl || undefined);
-    } else {
-      startEditing(cellId);
     }
-  };
 
-  const isFocused = (
-    rowIdx: number,
-    colIdx: number,
-    line: "debit" | "credit",
-  ) =>
-    focusedCell?.row === rowIdx &&
-    focusedCell?.col === colIdx &&
-    focusedCell?.line === line;
+    if (nextIdx >= FIELDS.length) {
+      if (nextRow < rows.length - 1) { nextRow++; nextIdx = 0; }
+      else nextIdx = FIELDS.length - 1;
+    } else if (nextIdx < 0) {
+      if (nextRow > 0) { nextRow--; nextIdx = FIELDS.length - 1; }
+      else nextIdx = 0;
+    }
 
-  const isEditing = (
-    rowIdx: number,
-    colIdx: number,
-    line: "debit" | "credit",
-  ) =>
-    editingCell?.row === rowIdx &&
-    editingCell?.col === colIdx &&
-    editingCell?.line === line;
+    const nextField = FIELDS[nextIdx];
+    commitEdit();
+    setFocusedCell({ row: nextRow, field: nextField });
+    setEditValue((rows[nextRow] as any)[nextField] || "");
+  }, [focusedCell, rows, commitEdit]);
 
-  const renderCell = (
-    row: SlipRow,
-    rowIdx: number,
-    col: (typeof COLUMNS_DEBIT)[0] & { isAccount?: boolean },
-    colIdx: number,
-    line: "debit" | "credit",
-    bg: string,
-  ) => {
-    const value = (row as any)[col.key] || "";
-    const focused = isFocused(rowIdx, colIdx, line);
-    const editing = isEditing(rowIdx, colIdx, line);
-    const isAmount = col.key.includes("Amount");
-    const isAcct = !!col.isAccount;
+  const debitTotal = useMemo(() => rows.reduce((sum, r) => sum + (parseInt(r.debitAmount.replace(/,/g, ""), 10) || 0), 0), [rows]);
+  const creditTotal = useMemo(() => rows.reduce((sum, r) => sum + (parseInt(r.creditAmount.replace(/,/g, ""), 10) || 0), 0), [rows]);
+  const diff = debitTotal - creditTotal;
+
+  const lastZeroTime = useRef(0);
+
+  const renderInput = (rowIdx: number, field: string, placeholder: string, className = "") => {
+    const isFocused = focusedCell?.row === rowIdx && focusedCell?.field === field;
+    const val = isFocused ? editValue : (rows[rowIdx] as any)[field] || "";
+    const isAmount = field.includes("Amount");
+
+    const st = getSearchType(field);
+    const isDropdownOnly = st === "dept" || st === "tax" || st === "taxRate" || st === "sub";
 
     return (
-      <td
-        key={`${col.key}-${line}`}
-        data-cell={`${rowIdx}-${colIdx}-${line}`}
-        className="relative"
-        style={{
-          width: col.width || undefined,
-          minWidth: col.width || 120,
-          maxWidth: col.width || undefined,
-          padding: 0,
-          backgroundColor: focused ? "#fff" : bg,
-          textAlign: col.align,
-          borderRight: "1px solid #d4d4d4",
-          borderBottom: "1px solid #d4d4d4",
-          cursor: "text",
-          outline: focused ? "2px solid #005BAC" : "none",
-          outlineOffset: "-2px",
-          zIndex: focused ? 2 : 1,
-          fontSize: 12,
-          fontVariantNumeric: isAmount
-            ? "tabular-nums"
-            : undefined,
-          position: "relative",
+      <div
+        className={`relative flex items-center px-1.5 text-[11px] cursor-text tracking-tight h-full min-h-[24px] border-b border-[#DDDDDD] overflow-hidden ${isFocused ? "bg-white ring-2 ring-inset ring-[#005BAC] z-10" : ""} ${className}`}
+        style={{ letterSpacing: "-0.02em" }}
+        data-row={rowIdx}
+        data-field={field}
+        onClick={() => {
+          if (!isFocused) {
+            commitEdit();
+            setFocusedCell({ row: rowIdx, field });
+            setEditValue((rows[rowIdx] as any)[field] || "");
+          }
         }}
-        onClick={() => handleCellClick(rowIdx, colIdx, line)}
-        onDoubleClick={() =>
-          handleCellDoubleClick(rowIdx, colIdx, line)
-        }
+        onDoubleClick={(e) => {
+          if (st) {
+            const r = e.currentTarget.getBoundingClientRect();
+            setAccountPopup({ isOpen: true, row: rowIdx, field, searchType: st, anchorRect: { top: r.bottom, left: r.left } });
+          }
+        }}
       >
-        {editing ? (
+        {isFocused ? (
           <input
-            ref={editInputRef}
-            type="text"
+            autoFocus
+            readOnly={isDropdownOnly}
+            className={`w-full h-full outline-none bg-transparent font-medium ${isDropdownOnly ? "caret-transparent cursor-pointer text-gray-800" : "text-gray-900"}`}
             value={editValue}
-            onChange={(e) => setEditValue(e.target.value)}
-            style={{
-              width: "100%",
-              height: "100%",
-              border: "none",
-              outline: "none",
-              padding: "2px 6px",
-              fontSize: 12,
-              textAlign: col.align,
-              backgroundColor: "#fffff0",
-              fontVariantNumeric: isAmount
-                ? "tabular-nums"
-                : undefined,
-              fontFamily: "'Noto Sans JP', sans-serif",
+            onChange={e => {
+              if (isDropdownOnly) return;
+              let v = e.target.value.replace(/[０-９]/g, (s) => String.fromCharCode(s.charCodeAt(0) - 0xfee0));
+              setEditValue(v);
             }}
+            onFocus={e => {
+              if (!isDropdownOnly) e.target.select();
+            }}
+            onBlur={() => commitEdit()}
+            onKeyDown={e => {
+              if (e.key === "Enter" || e.key === "Tab") {
+                e.preventDefault();
+                navigate(e.shiftKey ? "prev" : "next");
+              }
+              if (e.key === "F4" && st) {
+                e.preventDefault();
+                const r = e.currentTarget.getBoundingClientRect();
+                setAccountPopup({ isOpen: true, row: rowIdx, field, searchType: st, anchorRect: { top: r.bottom, left: r.left } });
+              }
+              // Prevent typing arbitrary text if it's meant to be selected via F4
+              if (isDropdownOnly && e.key !== "Enter" && e.key !== "Tab" && e.key !== "Escape" && e.key !== "F4" && !e.ctrlKey && !e.metaKey && !e.altKey) {
+                e.preventDefault();
+                // Option to open immediately on type
+                if (e.key.length === 1 || e.key === " ") {
+                  const r = e.currentTarget.getBoundingClientRect();
+                  setAccountPopup({ isOpen: true, row: rowIdx, field, searchType: st, anchorRect: { top: r.bottom, left: r.left } });
+                }
+              }
+
+              if (isAmount) {
+                if (e.key === "0") {
+                  if (Date.now() - lastZeroTime.current < 250) { e.preventDefault(); setEditValue(v => v + "00"); }
+                  lastZeroTime.current = Date.now();
+                } else if (e.key === "+" || e.key === "*") { e.preventDefault(); setEditValue(v => v + "000"); }
+              }
+            }}
+            placeholder={placeholder}
           />
         ) : (
-          <div
-            className="flex items-center"
-            style={{
-              padding: "2px 6px",
-              justifyContent:
-                col.align === "right"
-                  ? "flex-end"
-                  : col.align === "center"
-                    ? "center"
-                    : "flex-start",
-            }}
-          >
-            <span className="truncate">{value}</span>
-            {focused && isAcct && (
-              <span
-                style={{
-                  marginLeft: 4,
-                  fontSize: 9,
-                  color: "#005BAC",
-                  opacity: 0.7,
-                  whiteSpace: "nowrap",
-                  flexShrink: 0,
-                }}
-              >
-                F4
-              </span>
-            )}
-          </div>
+          <span className={`truncate w-full inline-block font-medium text-gray-900 ${isAmount && val ? "text-right" : ""}`}>
+            {isAmount && val ? Number(val.replace(/,/g, "")).toLocaleString() : val}
+          </span>
         )}
-      </td>
+        {!isFocused && !val && placeholder && <span className="text-gray-400 absolute left-1.5">{placeholder}</span>}
+      </div>
     );
   };
 
-  // Totals
-  const totalDebit = rows.reduce((sum, r) => {
-    const n = parseInt(r.debitAmount.replace(/,/g, ""), 10);
-    return sum + (isNaN(n) ? 0 : n);
-  }, 0);
-  const totalCredit = rows.reduce((sum, r) => {
-    const n = parseInt(r.creditAmount.replace(/,/g, ""), 10);
-    return sum + (isNaN(n) ? 0 : n);
-  }, 0);
-
   return (
-    <div
-      className="flex flex-col h-full"
-      style={{ fontFamily: "'Noto Sans JP', sans-serif" }}
-    >
-      {/* Title bar */}
-      <div
-        className="flex items-center justify-between px-2"
-        style={{
-          height: 26,
-          backgroundColor: "#005BAC",
-          color: "#fff",
-          fontSize: 12,
-          flexShrink: 0,
-        }}
-      >
-        <span>振替伝票 — 入力</span>
-        <div
-          className="flex items-center gap-3"
-          style={{ fontSize: 11 }}
-        >
-          <span style={{ opacity: 0.7 }}>
-            ダブルクリック or Enter:編集 | F4:科目検索 |
-            Tab:次のセル | Esc:取消
-          </span>
-          <span>伝票No. 自動 ｜ 令和7年度</span>
+    <div className="flex flex-col h-full bg-[#EEEEEE] overflow-hidden select-none" style={{ fontFamily: "'Noto Sans JP', sans-serif" }}>
+      {/* Scrollable Container */}
+      <div className="flex-1 flex flex-col overflow-x-auto overflow-y-hidden bg-[#EEEEEE]">
+        <div className="min-w-[1312px] flex-1 flex flex-col">
+          {/* Table Header */}
+          <div className="flex bg-[#EEEEEE] border-y border-[#DDDDDD] text-[10px] text-gray-700 font-bold h-10 items-center shrink-0" style={{ scrollbarGutter: 'stable' }}>
+            <div className="w-8 border-r border-[#DDDDDD] h-full flex items-center justify-center shrink-0">No.</div>
+            <div className="flex-1 flex h-full">
+              {/* Debit Header */}
+              <div className="w-[480px] shrink-0 grid grid-cols-[300px_85px_95px] border-r-2 border-blue-300 bg-[#E1EEFA]">
+                <div className="grid grid-rows-2 h-full">
+                  <div className="px-1.5 flex items-center border-b border-[#DDDDDD] h-full">借方勘定科目</div>
+                  <div className="px-1.5 flex items-center opacity-70 h-full">借方補助科目</div>
+                </div>
+                <div className="grid grid-rows-2 border-l border-[#DDDDDD] h-full">
+                  <div className="px-1.5 flex items-center border-b border-[#DDDDDD] h-full">借方金額</div>
+                  <div className="px-1.5 flex items-center text-blue-600 opacity-80 h-full">消費税額</div>
+                </div>
+                <div className="grid grid-rows-2 border-l border-[#DDDDDD] h-full text-[9px]">
+                  <div className="px-1.5 flex items-center border-b border-[#DDDDDD] h-full">借方部門</div>
+                  <div className="px-1.5 flex items-center h-full">税区分/税率</div>
+                </div>
+              </div>
+              {/* Credit Header */}
+              <div className="w-[480px] shrink-0 grid grid-cols-[300px_85px_95px] border-r border-[#DDDDDD] bg-[#FAE1EB]">
+                <div className="grid grid-rows-2 h-full">
+                  <div className="px-1.5 flex items-center border-b border-[#DDDDDD] h-full">貸方勘定科目</div>
+                  <div className="px-1.5 flex items-center opacity-70 h-full">貸方補助科目</div>
+                </div>
+                <div className="grid grid-rows-2 border-l border-[#DDDDDD] h-full">
+                  <div className="px-1.5 flex items-center border-b border-[#DDDDDD] h-full">貸方金額</div>
+                  <div className="px-1.5 flex items-center text-red-600 opacity-80 h-full">消費税額</div>
+                </div>
+                <div className="grid grid-rows-2 border-l border-[#DDDDDD] h-full text-[9px]">
+                  <div className="px-1.5 flex items-center border-b border-[#DDDDDD] h-full">貸方部門</div>
+                  <div className="px-1.5 flex items-center h-full">税区分/税率</div>
+                </div>
+              </div>
+              {/* Summary Header */}
+              <div className="w-[180px] grid grid-rows-2 border-l-2 border-gray-400 bg-[#F5F5F5] h-full shrink-0">
+                <div className="px-1.5 flex items-center border-b border-[#DDDDDD] h-full">摘要</div>
+                <div className="px-1.5 flex items-center h-full">取引先 / 請求書</div>
+              </div>
+            </div>
+          </div>
+
+          {/* Grid Content */}
+          <div className="flex-1 overflow-y-scroll bg-white" style={{ scrollbarGutter: 'stable' }}>
+            {rows.map((row, i) => (
+              <div key={i} className={`flex border-b border-[#DDDDDD] hover:bg-blue-50/50 ${i % 2 === 1 ? "bg-gray-50/50" : ""}`}>
+                <div className="w-8 border-r border-[#DDDDDD] flex flex-col items-center py-1 text-[10px] text-gray-400 bg-[#F9F9F9] shrink-0">
+                  <span className="mb-1">{i + 1}</span>
+                  {renderInput(i, "date", "", "border-none text-center bg-transparent mt-auto !min-h-[16px] !px-0")}
+                </div>
+                <div className="flex-1 flex min-h-[48px]">
+                  {/* Debit */}
+                  <div className="w-[480px] shrink-0 grid grid-cols-[300px_85px_95px] border-r-2 border-blue-200 lg:bg-[#F0F8FF]/30">
+                    <div className="grid grid-rows-2 h-full">
+                      {renderInput(i, "debitAccount", "借方勘定科目", "font-medium text-gray-900 bg-white/40")}
+                      {renderInput(i, "debitSub", "借方補助科目", "text-gray-700")}
+                    </div>
+                    <div className="grid grid-rows-2 border-l border-[#DDDDDD] h-full text-right">
+                      {renderInput(i, "debitAmount", "0", "font-bold text-blue-900 bg-white/40")}
+                      {renderInput(i, "debitTaxAmount", "0", "text-blue-700/80")}
+                    </div>
+                    <div className="grid grid-rows-2 border-l border-[#DDDDDD] h-full">
+                      {renderInput(i, "debitDept", "部門名", "text-[10px] text-gray-700")}
+                      <div className="flex h-full">
+                        {renderInput(i, "debitTax", "税区分", "flex-1 border-r border-[#EEEEEE] text-[9px] text-gray-600 px-1")}
+                        {renderInput(i, "debitTaxRate", "10%", "w-8 text-[9px] text-center text-gray-600 !px-0")}
+                      </div>
+                    </div>
+                  </div>
+                  {/* Credit */}
+                  <div className="w-[480px] shrink-0 grid grid-cols-[300px_85px_95px] border-r border-[#DDDDDD] lg:bg-[#FFF0F5]/30">
+                    <div className="grid grid-rows-2 h-full">
+                      {renderInput(i, "creditAccount", "貸方勘定科目", "font-medium text-gray-900 bg-white/40")}
+                      {renderInput(i, "creditSub", "貸方補助科目", "text-gray-700")}
+                    </div>
+                    <div className="grid grid-rows-2 border-l border-[#DDDDDD] h-full text-right">
+                      {renderInput(i, "creditAmount", "0", "font-bold text-red-900 bg-white/40")}
+                      {renderInput(i, "creditTaxAmount", "0", "text-red-700/80")}
+                    </div>
+                    <div className="grid grid-rows-2 border-l border-[#DDDDDD] h-full">
+                      {renderInput(i, "creditDept", "部門名", "text-[10px] text-gray-700")}
+                      <div className="flex h-full">
+                        {renderInput(i, "creditTax", "税区分", "flex-1 border-r border-[#EEEEEE] text-[9px] text-gray-600 px-1")}
+                        {renderInput(i, "creditTaxRate", "10%", "w-8 text-[9px] text-center text-gray-600 !px-0")}
+                      </div>
+                    </div>
+                  </div>
+                  {/* Summary */}
+                  <div className="w-[180px] border-l-2 border-gray-400 bg-[#FAFAFA] shrink-0">
+                    <div className="grid grid-rows-2 h-full">
+                      {renderInput(i, "summary", "摘要", "text-gray-900")}
+                      {renderInput(i, "client", "取引先 / 請求書", "text-gray-700")}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
 
-      {/* Grid */}
-      <div
-        className="flex-1 overflow-auto"
-        tabIndex={0}
-        onKeyDown={handleTableKeyDown}
-        style={{ outline: "none" }}
-      >
-        <table
-          ref={tableRef}
-          className="w-full"
-          style={{
-            borderCollapse: "collapse",
-            fontSize: 12,
-            tableLayout: "fixed",
+      {/* Footer / Status Bar */}
+      <div className="h-8 bg-[#D6D6D6] border-t border-gray-400 flex items-center px-4 gap-8 text-[11px] shrink-0 font-medium text-gray-900">
+        <div className="flex gap-2">
+          <span>借方合計:</span>
+          <span className="text-blue-700 font-bold">¥ {debitTotal.toLocaleString()}</span>
+        </div>
+        <div className="flex gap-2">
+          <span>貸方合計:</span>
+          <span className="text-red-700 font-bold">¥ {creditTotal.toLocaleString()}</span>
+        </div>
+        <div className="flex gap-2 ml-auto">
+          <span>貸借差額:</span>
+          <span className={`font-bold ${diff === 0 ? "text-green-700" : "text-orange-600"}`}>
+            ¥ {Math.abs(diff).toLocaleString()}
+          </span>
+        </div>
+      </div>
+
+      {accountPopup.isOpen && (
+        <AccountSearchPopup
+          isOpen={true}
+          onClose={() => setAccountPopup({ isOpen: false, row: -1, field: "", searchType: "account", anchorRect: null })}
+          searchType={accountPopup.searchType}
+          onSelect={(acc) => {
+            const { row, field } = accountPopup;
+            setAccountPopup({ isOpen: false, row: -1, field: "", searchType: "account", anchorRect: null });
+
+            setRows(prev => {
+              const next = [...prev];
+              const newRow = { ...next[row] };
+              (newRow as any)[field] = acc.name;
+
+              if (accountPopup.searchType === "account") {
+                const taxField = field.replace("Account", "Tax");
+                if (taxField !== field && (newRow as any)[taxField] === "") {
+                  (newRow as any)[taxField] = acc.taxType || "";
+                }
+              }
+
+              const calcTax = (amtStr: string, rateStr: string, taxType: string) => {
+                if (!taxType) taxType = "";
+                if (taxType.includes("対象外") || taxType.includes("非課税")) return "0";
+                const rate = parseInt(rateStr.replace("%", ""), 10) || 0;
+                const amt = parseInt((amtStr || "").replace(/,/g, ""), 10) || 0;
+                return Math.floor(amt * (rate / 100)).toLocaleString();
+              };
+
+              if (field.startsWith("debit")) {
+                newRow.debitTaxAmount = calcTax(newRow.debitAmount, newRow.debitTaxRate, newRow.debitTax);
+              } else if (field.startsWith("credit")) {
+                newRow.creditTaxAmount = calcTax(newRow.creditAmount, newRow.creditTaxRate, newRow.creditTax);
+              }
+
+              next[row] = newRow;
+
+              const idx = FIELDS.indexOf(field);
+              let nextRow = row;
+              let nextIdx = idx + 1;
+              if (field === "debitAmount") nextIdx = FIELDS.indexOf("creditAccount");
+              else if (field === "client" && nextRow < next.length - 1) { nextRow++; nextIdx = FIELDS.indexOf("debitAccount"); }
+              if (nextIdx >= FIELDS.length) { if (nextRow < next.length - 1) { nextRow++; nextIdx = 0; } else nextIdx = FIELDS.length - 1; }
+              const nextField = FIELDS[nextIdx];
+
+              setTimeout(() => {
+                setFocusedCell({ row: nextRow, field: nextField });
+                setEditValue((next[nextRow] as any)[nextField] || "");
+              }, 0);
+
+              return next;
+            });
           }}
-        >
-          {/* Header */}
-          <thead>
-            <tr style={{ backgroundColor: "#d0dce8" }}>
-              <th
-                style={{
-                  width: 28,
-                  padding: "3px 0",
-                  borderRight: "1px solid #b0b0b0",
-                  borderBottom: "2px solid #005BAC",
-                  fontSize: 10,
-                  color: "#555",
-                }}
-              >
-                No
-              </th>
-              {COLUMNS_DEBIT.map((col) => (
-                <th
-                  key={col.key}
-                  style={{
-                    width: col.width || undefined,
-                    minWidth: col.width || 120,
-                    padding: "3px 6px",
-                    borderRight: "1px solid #b0b0b0",
-                    borderBottom: "2px solid #005BAC",
-                    textAlign: "center",
-                    fontSize: 11,
-                    color: "#333",
-                  }}
-                >
-                  {col.label}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          {rows.map((row, rIdx) => (
-            <tbody key={row.id}>
-              {/* Debit row (upper) */}
-              <tr
-                style={{
-                  backgroundColor:
-                    selectedRow === rIdx
-                      ? "#e0ecf8"
-                      : undefined,
-                }}
-              >
-                <td
-                  rowSpan={2}
-                  style={{
-                    width: 28,
-                    textAlign: "center",
-                    fontSize: 10,
-                    color: "#888",
-                    borderRight: "1px solid #d4d4d4",
-                    borderBottom: "1px solid #d4d4d4",
-                    backgroundColor:
-                      selectedRow === rIdx
-                        ? "#cde0f4"
-                        : "#f5f5f5",
-                    verticalAlign: "middle",
-                  }}
-                >
-                  {rIdx + 1}
-                </td>
-                {COLUMNS_DEBIT.map((col, cIdx) =>
-                  renderCell(
-                    row,
-                    rIdx,
-                    col,
-                    cIdx,
-                    "debit",
-                    "#F0F8FF",
-                  ),
-                )}
-              </tr>
-              {/* Credit row (lower) */}
-              <tr
-                style={{
-                  backgroundColor:
-                    selectedRow === rIdx
-                      ? "#f8e8ec"
-                      : undefined,
-                }}
-              >
-                {COLUMNS_CREDIT.map((col, cIdx) =>
-                  renderCell(
-                    row,
-                    rIdx,
-                    col,
-                    cIdx,
-                    "credit",
-                    "#FFF0F5",
-                  ),
-                )}
-              </tr>
-            </tbody>
-          ))}
-        </table>
-      </div>
-
-      {/* Footer totals */}
-      <div
-        className="flex items-center justify-between px-2"
-        style={{
-          height: 28,
-          backgroundColor: "#e8e8e8",
-          borderTop: "2px solid #005BAC",
-          fontSize: 12,
-          flexShrink: 0,
-        }}
-      >
-        <span style={{ color: "#555" }}>
-          仕訳数: {rows.length}件
-        </span>
-        <div className="flex items-center gap-6">
-          <span>
-            借方合計:{" "}
-            <span
-              style={{
-                color: "#005BAC",
-                fontVariantNumeric: "tabular-nums",
-              }}
-            >
-              ¥{totalDebit.toLocaleString()}
-            </span>
-          </span>
-          <span>
-            {"\u8CB8\u65B9\u5408\u8A08: "}
-            <span
-              style={{
-                color: "#c0392b",
-                fontVariantNumeric: "tabular-nums",
-              }}
-            >
-              ¥{totalCredit.toLocaleString()}
-            </span>
-          </span>
-          <span
-            style={{
-              color:
-                totalDebit === totalCredit
-                  ? "#27ae60"
-                  : "#e74c3c",
-            }}
-          >
-            {totalDebit === totalCredit
-              ? "\u2713 \u8CB8\u501F\u4E00\u81F4"
-              : "\u2717 \u8CB8\u501F\u4E0D\u4E00\u81F4"}
-          </span>
-        </div>
-      </div>
-
-      {/* Account Search Popup */}
-      <AccountSearchPopup
-        isOpen={accountPopup.isOpen}
-        onClose={() =>
-          setAccountPopup({
-            isOpen: false,
-            cellId: null,
-            anchorRect: null,
-          })
-        }
-        onSelect={handleAccountSelect}
-        anchorRect={accountPopup.anchorRect}
-        initialQuery=""
-      />
+          anchorRect={accountPopup.anchorRect!}
+        />
+      )}
     </div>
   );
 }

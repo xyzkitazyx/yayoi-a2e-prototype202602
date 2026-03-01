@@ -179,3 +179,25 @@
     line-height: 1.5;
   }
 }
+
+@media print {
+  /* Hide sidebar and anything purely for UI navigation */
+  .print-hidden, nav, header {
+    display: none !important;
+  }
+  
+  /* Print styling adjustments */
+  body {
+    background: white;
+    margin: 0;
+    padding: 0;
+  }
+  
+  /* Make sure the main content expands to fill page */
+  .print-expand {
+    width: 100% !important;
+    max-width: none !important;
+    border: none !important;
+    box-shadow: none !important;
+  }
+}

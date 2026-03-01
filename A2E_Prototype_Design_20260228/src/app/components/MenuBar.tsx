@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
+import { toast } from "sonner";
 
 interface MenuItem {
   label: string;
@@ -18,7 +19,7 @@ const menus: Menu[] = [
     label: "ファイル(F)",
     key: "F",
     items: [
-      { label: "新規作成", shortcut: "Ctrl+N" },
+      { label: "新規作成", shortcut: "Alt+N" },
       { label: "開く", shortcut: "Ctrl+O" },
       { divider: true, label: "" },
       { label: "上書き保存", shortcut: "Ctrl+S" },
@@ -144,8 +145,64 @@ menus.forEach((menu, idx) => {
 
 export function MenuBar() {
   const [openMenu, setOpenMenu] = useState<number | null>(null);
+  const [focusedItemIndex, setFocusedItemIndex] = useState<number | null>(null);
   const [altMode, setAltMode] = useState(false);
   const menuBarRef = useRef<HTMLDivElement>(null);
+
+  const handleMenuAction = useCallback((item: MenuItem) => {
+    if (item.disabled || item.divider) return;
+
+    setOpenMenu(null);
+    setAltMode(false);
+    setFocusedItemIndex(null);
+
+    const label = item.label;
+    const actionMap: Record<string, string> = {
+      "上書き保存": "submit",
+      "新規作成": "action:new_slip",
+      "最新の情報に更新": "refresh",
+      "仕訳日記帳": "view:journal",
+      "振替伝票": "view:transfer-slip",
+      "残高試算表": "view:trial-balance",
+      "総勘定元帳": "view:general-ledger",
+      "補助元帳": "view:subsidiary-ledger",
+      "事業所設定": "view:settings",
+      "決算書作成": "view:financial-statements",
+      "科目設定": "view:initial-balance",
+    };
+
+    if (actionMap[label]) {
+      window.dispatchEvent(new CustomEvent("a2e-toolbar-action", { detail: actionMap[label] }));
+      return;
+    }
+
+    if (label === "印刷") {
+      setTimeout(() => window.print(), 100);
+      return;
+    }
+    if (label === "終了") {
+      toast.info("ブラウザのタブを閉じて終了してください。");
+      return;
+    }
+    if (label === "開く") {
+      window.dispatchEvent(new CustomEvent("a2e-toolbar-action", { detail: "view:journal" }));
+      return;
+    }
+    if (label === "バージョン情報") {
+      toast("A2E Prototype v1.0", {
+        description: "弥生会計互換 クラウドネイティブプロトタイプ",
+        position: "top-center"
+      });
+      return;
+    }
+    if (["切り取り", "コピー", "貼り付け"].includes(label)) {
+      return;
+    }
+
+    toast.info("次期アップデートで公開予定です", {
+      description: `「${label}」はプロダクトロードマップの対象です`
+    });
+  }, []);
 
   // Close menu on outside click
   useEffect(() => {
@@ -156,11 +213,34 @@ export function MenuBar() {
       ) {
         setOpenMenu(null);
         setAltMode(false);
+        setFocusedItemIndex(null);
       }
     }
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
+
+  // Navigation helper
+  const moveFocus = useCallback((direction: number) => {
+    if (openMenu === null) return;
+    const items = menus[openMenu].items;
+    let nextIdx = focusedItemIndex === null ? (direction > 0 ? 0 : items.length - 1) : focusedItemIndex + direction;
+
+    // Loop until we find a selectable item or complete a full cycle
+    let count = 0;
+    while (count < items.length) {
+      if (nextIdx < 0) nextIdx = items.length - 1;
+      if (nextIdx >= items.length) nextIdx = 0;
+
+      const item = items[nextIdx];
+      if (!item.divider && !item.disabled) {
+        setFocusedItemIndex(nextIdx);
+        return;
+      }
+      nextIdx += direction;
+      count++;
+    }
+  }, [openMenu, focusedItemIndex]);
 
   // Alt+key global handler
   useEffect(() => {
@@ -168,46 +248,60 @@ export function MenuBar() {
     let altOnly = false;
 
     function handleKeyDown(e: KeyboardEvent) {
-      // Track Alt key
       if (e.key === "Alt") {
         altPressed = true;
         altOnly = true;
         return;
       }
 
-      // If Alt is held, check for menu shortcuts
       if (e.altKey && !e.ctrlKey && !e.metaKey) {
         const key = e.key.toLowerCase();
         if (key in altKeyMap) {
           e.preventDefault();
           e.stopPropagation();
           altOnly = false;
-          setOpenMenu((prev) =>
-            prev === altKeyMap[key] ? null : altKeyMap[key]
-          );
+          const targetMenuIdx = altKeyMap[key];
+          setOpenMenu(targetMenuIdx);
           setAltMode(true);
+          // Focus first item
+          const firstSelectable = menus[targetMenuIdx].items.findIndex(it => !it.divider && !it.disabled);
+          setFocusedItemIndex(firstSelectable !== -1 ? firstSelectable : 0);
           return;
         }
       }
 
-      // If a menu is open and we're in alt mode, allow arrow navigation
       if (altMode || openMenu !== null) {
         if (e.key === "ArrowRight") {
           e.preventDefault();
-          setOpenMenu((prev) =>
-            prev !== null ? (prev + 1) % menus.length : 0
-          );
+          setOpenMenu((prev) => {
+            const next = prev !== null ? (prev + 1) % menus.length : 0;
+            const firstSelectable = menus[next].items.findIndex(it => !it.divider && !it.disabled);
+            setFocusedItemIndex(firstSelectable !== -1 ? firstSelectable : 0);
+            return next;
+          });
         } else if (e.key === "ArrowLeft") {
           e.preventDefault();
-          setOpenMenu((prev) =>
-            prev !== null
-              ? (prev - 1 + menus.length) % menus.length
-              : menus.length - 1
-          );
+          setOpenMenu((prev) => {
+            const next = prev !== null ? (prev - 1 + menus.length) % menus.length : menus.length - 1;
+            const firstSelectable = menus[next].items.findIndex(it => !it.divider && !it.disabled);
+            setFocusedItemIndex(firstSelectable !== -1 ? firstSelectable : 0);
+            return next;
+          });
+        } else if (e.key === "ArrowDown" || (e.key === "Tab" && !e.shiftKey)) {
+          e.preventDefault();
+          moveFocus(1);
+        } else if (e.key === "ArrowUp" || (e.key === "Tab" && e.shiftKey)) {
+          e.preventDefault();
+          moveFocus(-1);
+        } else if (e.key === "Enter" && openMenu !== null && focusedItemIndex !== null) {
+          e.preventDefault();
+          const item = menus[openMenu].items[focusedItemIndex];
+          handleMenuAction(item);
         } else if (e.key === "Escape") {
           e.preventDefault();
           setOpenMenu(null);
           setAltMode(false);
+          setFocusedItemIndex(null);
         }
       }
 
@@ -217,11 +311,11 @@ export function MenuBar() {
     function handleKeyUp(e: KeyboardEvent) {
       if (e.key === "Alt") {
         altPressed = false;
-        // If Alt was pressed and released alone, toggle alt-mode (underline shortcut keys)
         if (altOnly) {
           setAltMode((prev) => {
             if (prev) {
               setOpenMenu(null);
+              setFocusedItemIndex(null);
               return false;
             }
             return true;
@@ -237,11 +331,10 @@ export function MenuBar() {
       window.removeEventListener("keydown", handleKeyDown, true);
       window.removeEventListener("keyup", handleKeyUp, true);
     };
-  }, [altMode, openMenu]);
+  }, [altMode, openMenu, focusedItemIndex, moveFocus, handleMenuAction]);
 
   // Render menu label with underlined shortcut key
   const renderLabel = (label: string, menuKey: string) => {
-    // Find the position of (X) pattern
     const match = label.match(/\(([A-Z])\)/);
     if (!match) return <span>{label}</span>;
 
@@ -273,8 +366,8 @@ export function MenuBar() {
       ref={menuBarRef}
       className="flex items-stretch relative"
       style={{
-        height: 24,
-        backgroundColor: "#f0f0f0",
+        height: 28,
+        backgroundColor: "#F3F3F3",
         borderBottom: "1px solid #c0c0c0",
         fontFamily: "'Noto Sans JP', sans-serif",
         fontSize: 12,
@@ -292,15 +385,19 @@ export function MenuBar() {
               backgroundColor:
                 openMenu === idx
                   ? "#005BAC"
-                  : altMode && openMenu === null
-                  ? "transparent"
                   : "transparent",
               color: openMenu === idx ? "#fff" : "#222",
               transition: "background-color 0.05s",
             }}
-            onMouseDown={() =>
-              setOpenMenu(openMenu === idx ? null : idx)
-            }
+            onMouseDown={() => {
+              if (openMenu === idx) {
+                setOpenMenu(null);
+                setFocusedItemIndex(null);
+              } else {
+                setOpenMenu(idx);
+                setFocusedItemIndex(null); // Click doesn't necessarily set keyboard focus
+              }
+            }}
             onMouseEnter={() => {
               if (openMenu !== null) setOpenMenu(idx);
             }}
@@ -311,7 +408,7 @@ export function MenuBar() {
             <div
               className="absolute left-0 z-50"
               style={{
-                top: 24,
+                top: 28,
                 minWidth: 220,
                 backgroundColor: "#fff",
                 border: "1px solid #c0c0c0",
@@ -336,24 +433,18 @@ export function MenuBar() {
                     style={{
                       padding: "3px 20px 3px 24px",
                       fontSize: 12,
-                      color: item.disabled ? "#999" : "#222",
+                      backgroundColor: focusedItemIndex === iIdx ? "#005BAC" : "transparent",
+                      color: focusedItemIndex === iIdx ? "#fff" : (item.disabled ? "#999" : "#222"),
                     }}
-                    onMouseEnter={(e) => {
+                    onMouseEnter={() => {
                       if (!item.disabled) {
-                        e.currentTarget.style.backgroundColor = "#005BAC";
-                        e.currentTarget.style.color = "#fff";
+                        setFocusedItemIndex(iIdx);
                       }
                     }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.backgroundColor = "transparent";
-                      e.currentTarget.style.color = item.disabled
-                        ? "#999"
-                        : "#222";
+                    onMouseLeave={() => {
+                      // We don't necessarily clear focusedItemIndex on mouse leave to keep manual arrow keys stable
                     }}
-                    onClick={() => {
-                      setOpenMenu(null);
-                      setAltMode(false);
-                    }}
+                    onClick={() => handleMenuAction(item)}
                   >
                     <span>{item.label}</span>
                     {item.shortcut && (

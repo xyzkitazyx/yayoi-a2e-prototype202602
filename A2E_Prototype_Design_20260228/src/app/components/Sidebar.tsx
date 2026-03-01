@@ -55,9 +55,9 @@ export function Sidebar({ activeView, onViewChange }: SidebarProps) {
     <div
       className="flex flex-col h-full select-none"
       style={{
-        width: collapsed ? 52 : 200,
-        minWidth: collapsed ? 52 : 200,
-        backgroundColor: "#1a1a2e",
+        width: collapsed ? 52 : 192,
+        minWidth: collapsed ? 52 : 192,
+        backgroundColor: "#1A1C1E",
         fontFamily: "'Noto Sans JP', sans-serif",
         transition: "width 0.15s, min-width 0.15s",
       }}
